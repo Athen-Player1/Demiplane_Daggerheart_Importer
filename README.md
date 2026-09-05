@@ -43,6 +43,7 @@ Currently imported/synced:
 - Equipment
 - Equipped weapons and armor, including the carried/equipped distinction
 - Connection answers in the actor sheet's native Connections field
+- Each connection answer appears beneath its corresponding class question; skipped answers retain their original question numbers
 - Custom equipment descriptions and explicit inventory quantities
 - Custom equipment as loot placeholders
 - Basic biography/import summary

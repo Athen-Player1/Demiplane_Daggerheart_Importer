@@ -1,7 +1,7 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { MODULE_ID, normalizeDemiplaneCharacter, parseDemiplaneCharacterHtml } from './parser.mjs';
+import { MODULE_ID, normalizeDemiplaneCharacter, parseDemiplaneCharacterHtml, connectionsForBiography } from './parser.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/character.json', import.meta.url)));
 const clone = structuredClone;
@@ -33,6 +33,11 @@ class MockActor {
     async createEmbeddedDocuments(type, data) {
         assert.equal(type, 'Item');
         const items = data.map(value => new Item(value));
+        for (const item of items.filter(item => item.type === 'class')) {
+            this.system.biography ??= {};
+            this.system.biography.connections = (this.system.biography.connections ?? '') +
+                (item.system.connections ?? []).filter(Boolean).map(question => `<p><strong>${question}</strong></p>`).join('<br/>');
+        }
         this.items.push(...items);
         return items;
     }
@@ -86,6 +91,33 @@ test('empty connections clear previous answers and HTML is escaped', () => {
     assert.equal(buildSystemUpdate(n).biography.connections, '');
     n.connections = ['<img onerror="bad"> &\nnext'];
     assert.equal(buildSystemUpdate(n).biography.connections, '<p>&lt;img onerror=&quot;bad&quot;&gt; &amp;<br>next</p>');
+});
+
+test('connection answers follow their questions after class creation and repeated refresh', async () => {
+    const questions = ['Why do you confide in me?', 'What did you see?', 'What was foolish?'];
+    game.packs.push(pack('daggerheart.classes', [{ name: 'Warlock', type: 'class', system: { connections: questions } }]));
+    const n = normalized(); n.selections.class = { name: 'Warlock' };
+    const actor = new MockActor();
+    const expected = questions.map((q, i) => `<p><strong>${q}</strong></p>\n<p>Connection answer ${i}</p>`).join('\n');
+    for (let i = 0; i < 3; i++) {
+        await actor.update({ system: buildSystemUpdate(n) });
+        await syncImportedItems(actor, n);
+        assert.equal(actor.system.biography.connections, expected);
+    }
+    n.connections = []; n.connectionIndices = [];
+    await syncImportedItems(actor, n);
+    assert.equal(actor.system.biography.connections, '');
+});
+test('skipped connection questions do not shift answer pairing', () => {
+    const f = clone(fixture);
+    f.character.data.engines = f.character.data.engines.filter(engine => !engine.name.includes('connection-1--answer'));
+    const n = normalizeDemiplaneCharacter(f);
+    assert.deepEqual(n.connectionIndices, [0, 2]);
+    assert.equal(connectionsForBiography(n, ['First?', 'Skipped?', 'Third?']), '<p><strong>First?</strong></p>\n<p>Connection answer 0</p>\n<p><strong>Third?</strong></p>\n<p>Connection answer 2</p>');
+});
+test('missing or unsafe question text preserves answers and escapes markup', () => {
+    const n = { connections: ['Answer', 'Another'], connectionIndices: [0, 4] };
+    assert.equal(connectionsForBiography(n, ['<script>bad</script>']), '<p><strong>&lt;script&gt;bad&lt;/script&gt;</strong></p>\n<p>Answer</p>\n<p>Another</p>');
 });
 test('HTML parsing runs the production normalizer and rejects missing data', () => {
     const text = `43:${JSON.stringify(['$', 'component', null, { characterSheetContent: fixture }])}`;

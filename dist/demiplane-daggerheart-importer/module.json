@@ -2,7 +2,7 @@
   "id": "demiplane-daggerheart-importer",
   "title": "Demiplane Daggerheart Importer",
   "description": "Import and refresh Demiplane Daggerheart characters into the Foundryborne Daggerheart system from a character sheet URL.",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "compatibility": {
     "minimum": "14.364",
     "verified": "14.365",
@@ -39,5 +39,5 @@
     }
   ],
   "manifest": "https://raw.githubusercontent.com/Athen-Player1/Demiplane_Daggerheart_Importer/main/module.json",
-  "download": "https://github.com/Athen-Player1/Demiplane_Daggerheart_Importer/releases/download/0.1.11/demiplane-daggerheart-importer-0.1.11.zip"
+  "download": "https://github.com/Athen-Player1/Demiplane_Daggerheart_Importer/releases/download/0.1.12/demiplane-daggerheart-importer-0.1.12.zip"
 }

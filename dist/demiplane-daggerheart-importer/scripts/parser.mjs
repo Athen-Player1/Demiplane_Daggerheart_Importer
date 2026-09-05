@@ -57,6 +57,11 @@ export function normalizeDemiplaneCharacter(content, sourceUrl = '') {
     const character = content.character;
     const engines = character?.data?.engines ?? [];
     const selections = collectSelections(engines);
+    const connectionAnswers = engines
+        .filter(engine => /^character_details_connection-\d+--answer$/.test(engine.name))
+        .map(engine => ({ index: Number(engine.name.match(/connection-(\d+)/)[1]), answer: String(engine.value ?? '').trim() }))
+        .filter(entry => entry.answer)
+        .sort((a, b) => a.index - b.index);
 
     return {
         id: character?.uuid ?? content.characterId ?? extractDemiplaneCharacterId(sourceUrl),
@@ -69,11 +74,8 @@ export function normalizeDemiplaneCharacter(content, sourceUrl = '') {
         created: character?.created ?? null,
         selections,
         traits: collectTraits(engines),
-        connections: engines
-            .filter(engine => /^character_details_connection-\d+--answer$/.test(engine.name))
-            .sort((a, b) => Number(a.name.match(/connection-(\d+)/)[1]) - Number(b.name.match(/connection-(\d+)/)[1]))
-            .map(engine => String(engine.value ?? '').trim())
-            .filter(Boolean),
+        connections: connectionAnswers.map(entry => entry.answer),
+        connectionIndices: connectionAnswers.map(entry => entry.index),
         raw: {
             character,
             metadata: content.metadata,
@@ -177,8 +179,13 @@ export function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
 
-export function connectionsForBiography(normalized) {
-    return (normalized.connections ?? []).map(answer => `<p>${escapeHtml(answer).replace(/\r?\n/g, '<br>')}</p>`).join('\n');
+export function connectionsForBiography(normalized, questions = []) {
+    return (normalized.connections ?? []).map((answer, position) => {
+        const index = normalized.connectionIndices?.[position] ?? position;
+        const question = questions[index];
+        const prompt = question ? `<p><strong>${escapeHtml(question)}</strong></p>\n` : '';
+        return `${prompt}<p>${escapeHtml(answer).replace(/\r?\n/g, '<br>')}</p>`;
+    }).join('\n');
 }
 
 function slugFromEngineName(name) {

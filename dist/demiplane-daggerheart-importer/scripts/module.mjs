@@ -382,6 +382,11 @@ export async function syncImportedItems(actor, normalized) {
     await createSelectionBatch(prepared.domains);
     await createSelectionBatch(prepared.customEquipment);
 
+    // Class creation appends unanswered prompts to the biography. Replace that
+    // intermediate text after creation with each answer beneath its own prompt.
+    const connectionQuestions = createdClassItems.find(item => item.type === 'class')?.system?.connections ?? [];
+    await actor.update({ system: { biography: { connections: connectionsForBiography(normalized, connectionQuestions) } } });
+
     // Restore preserved item state (armor durability, etc.)
     for (const createdItem of createdItems) {
         const key = createdItem.getFlag(MODULE_ID, 'sourceId');
