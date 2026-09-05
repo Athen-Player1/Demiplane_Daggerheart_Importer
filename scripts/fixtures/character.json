@@ -1,0 +1,339 @@
+{
+  "character": {
+    "name": "Fixture Character",
+    "level": 1,
+    "data": {
+      "engines": [
+        {
+          "id": "id0",
+          "args": {
+            "id": null,
+            "customName": "Torch",
+            "parentEngine": "id1_id2"
+          },
+          "name": "core/selection/equipment/custom/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "AddEngineSavable",
+          "demiplaneEngineId": "id1_id2_id3"
+        },
+        {
+          "id": "id0",
+          "args": {
+            "id": null,
+            "customName": "50ft of Rope",
+            "parentEngine": "id1_id2"
+          },
+          "name": "core/selection/equipment/custom/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "AddEngineSavable",
+          "demiplaneEngineId": "id1_id2_id4"
+        },
+        {
+          "id": "id0",
+          "args": {
+            "id": null,
+            "customName": "Basic Supplies",
+            "parentEngine": "id1_id2"
+          },
+          "name": "core/selection/equipment/custom/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "AddEngineSavable",
+          "demiplaneEngineId": "id1_id2_id5"
+        },
+        {
+          "id": "id6",
+          "args": {
+            "id": null,
+            "slug": "casting-dagger",
+            "parentEngine": "id7"
+          },
+          "name": "tabula/equipment/casting-dagger.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id7_id8"
+        },
+        {
+          "id": "id9",
+          "args": {
+            "id": "id10",
+            "name": "Casting Dagger",
+            "slug": "casting-dagger",
+            "sourceRow": "class-starting-weapons",
+            "isRealItem": "1",
+            "parentEngine": "id11",
+            "builderSection": "class",
+            "addEngineStatus": {
+              "id7_id8": true
+            }
+          },
+          "name": "core/selection/equipment/starting-class/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id7"
+        },
+        {
+          "id": "id12",
+          "args": {
+            "id": null,
+            "slug": "dualstaff",
+            "parentEngine": "id13"
+          },
+          "name": "tabula/equipment/dualstaff.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id13_id8"
+        },
+        {
+          "id": "id9",
+          "args": {
+            "id": "id14",
+            "name": "Dualstaff",
+            "slug": "dualstaff",
+            "sourceRow": "class-starting-weapons",
+            "isRealItem": "1",
+            "parentEngine": "id11",
+            "builderSection": "class",
+            "addEngineStatus": {
+              "id13_id8": true
+            }
+          },
+          "name": "core/selection/equipment/starting-class/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id13"
+        },
+        {
+          "id": "id15",
+          "args": {
+            "id": null,
+            "slug": "mage-robes",
+            "parentEngine": "id16"
+          },
+          "name": "tabula/equipment/mage-robes.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id16_id8"
+        },
+        {
+          "id": "id9",
+          "args": {
+            "id": "id17",
+            "name": "Mage Robes",
+            "slug": "mage-robes",
+            "sourceRow": "class-starting-armor",
+            "isRealItem": "1",
+            "parentEngine": "id11",
+            "builderSection": "class",
+            "addEngineStatus": {
+              "id16_id8": true
+            }
+          },
+          "name": "core/selection/equipment/starting-class/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id16"
+        },
+        {
+          "id": "id18",
+          "args": {
+            "id": null,
+            "slug": "minor-health-potion-playtest",
+            "parentEngine": "id19"
+          },
+          "name": "tabula/equipment/minor-health-potion-playtest.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id19_id8"
+        },
+        {
+          "id": "id9",
+          "args": {
+            "id": "id20",
+            "name": "Minor Health Potion",
+            "slug": "minor-health-potion-playtest",
+            "itemGroup": "potions",
+            "sourceRow": "class-starting-inventory",
+            "isRealItem": "1",
+            "parentEngine": "id11",
+            "builderSection": "class",
+            "addEngineStatus": {
+              "id19_id8": true
+            }
+          },
+          "name": "core/selection/equipment/starting-class/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id19"
+        },
+        {
+          "id": "id0",
+          "args": {
+            "id": null,
+            "slug": "a-small-harmless-pet",
+            "customName": "a small, harmless pet",
+            "parentEngine": "id21"
+          },
+          "name": "core/selection/equipment/custom/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id21_id8"
+        },
+        {
+          "id": "id9",
+          "args": {
+            "id": "id22",
+            "name": "a small, harmless pet",
+            "slug": "a-small-harmless-pet",
+            "itemGroup": "class-items",
+            "sourceRow": "class-starting-inventory",
+            "parentEngine": "id11",
+            "builderSection": "class",
+            "addEngineStatus": {
+              "id21_id8": true
+            }
+          },
+          "name": "core/selection/equipment/starting-class/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id21"
+        },
+        {
+          "id": "id0",
+          "args": {
+            "id": null,
+            "customName": "Nomadic Pack",
+            "description": "Once per session, you can spend a Hope to reach into this pack and pull out a mundane item that’s useful to your situation.",
+            "parentEngine": "id23"
+          },
+          "name": "core/selection/equipment/custom/index.eng",
+          "type": "DemiplaneEngine",
+          "saveType": "CharacterSheet",
+          "demiplaneEngineId": "id23_id24"
+        },
+        {
+          "id": "custom_character_details_connection-1--answer",
+          "args": {
+            "id": null,
+            "parentEngine": "id11"
+          },
+          "name": "character_details_connection-1--answer",
+          "type": "CustomDemiplaneEngine",
+          "value": "Connection answer 1",
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id25"
+        },
+        {
+          "id": "custom_character_details_connection-2--answer",
+          "args": {
+            "id": null,
+            "parentEngine": "id11"
+          },
+          "name": "character_details_connection-2--answer",
+          "type": "CustomDemiplaneEngine",
+          "value": "Connection answer 2",
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id26"
+        },
+        {
+          "id": "custom_character_details_connection-0--answer",
+          "args": {
+            "id": null,
+            "parentEngine": "id11"
+          },
+          "name": "character_details_connection-0--answer",
+          "type": "CustomDemiplaneEngine",
+          "value": "Connection answer 0",
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id27"
+        },
+        {
+          "id": "custom_character_hand_primary_equipped-id",
+          "args": {
+            "id": null,
+            "parentEngine": "id7_id8"
+          },
+          "name": "character_hand_primary_equipped-id",
+          "type": "CustomDemiplaneEngine",
+          "value": "id7_id8",
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id28"
+        },
+        {
+          "id": "custom_character_hand_both_equipped-id",
+          "args": {
+            "id": null
+          },
+          "name": "character_hand_both_equipped-id",
+          "type": "CustomDemiplaneEngine",
+          "value": "na",
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id29"
+        },
+        {
+          "id": "custom_id16_id8-is-equipped",
+          "args": {
+            "id": null,
+            "parentEngine": "id16_id8"
+          },
+          "name": "id16_id8-is-equipped",
+          "type": "CustomDemiplaneEngine",
+          "value": 1,
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id30"
+        },
+        {
+          "id": "custom_id23_id24-is-equipped",
+          "args": {
+            "id": null,
+            "parentEngine": "id23_id24"
+          },
+          "name": "id23_id24-is-equipped",
+          "type": "CustomDemiplaneEngine",
+          "value": 1,
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id31"
+        },
+        {
+          "id": "custom_id21_id8-is-equipped",
+          "args": {
+            "id": null,
+            "parentEngine": "id21_id8"
+          },
+          "name": "id21_id8-is-equipped",
+          "type": "CustomDemiplaneEngine",
+          "value": 1,
+          "saveType": "CharacterSheet",
+          "storeType": "override",
+          "demiplaneEngineId": "id32"
+        },
+        {
+          "name": "trait-selection-value-2",
+          "value": "knowledge",
+          "type": "CustomDemiplaneEngine"
+        },
+        {
+          "name": "trait-selection-value-1",
+          "value": "instinct",
+          "type": "CustomDemiplaneEngine"
+        },
+        {
+          "name": "trait-selection-value-1-second",
+          "value": "presence",
+          "type": "CustomDemiplaneEngine"
+        },
+        {
+          "name": "trait-selection-value-neg-1",
+          "value": "strength",
+          "type": "CustomDemiplaneEngine"
+        }
+      ]
+    }
+  }
+}

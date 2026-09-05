@@ -1,332 +1,239 @@
-/**
- * Test suite for armor durability preservation and connections sync
- * Run with: node scripts/test-fixes.mjs
- */
+import test, { beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { MODULE_ID, normalizeDemiplaneCharacter, parseDemiplaneCharacterHtml } from './parser.mjs';
 
-// Mock Foundry utilities for testing
-const MockFoundry = {
-    utils: {
-        mergeObject: (target, source) => ({ ...target, ...source }),
-        deepClone: (obj) => JSON.parse(JSON.stringify(obj)),
-        setProperty: (obj, path, value) => {
-            const keys = path.split('.');
-            let current = obj;
-            for (let i = 0; i < keys.length - 1; i++) {
-                current[keys[i]] = current[keys[i]] || {};
-                current = current[keys[i]];
-            }
-            current[keys[keys.length - 1]] = value;
-        },
-        getProperty: (obj, path) => {
-            return path.split('.').reduce((o, k) => o?.[k], obj);
-        },
-        isEmpty: (obj) => Object.keys(obj).length === 0
+const fixture = JSON.parse(readFileSync(new URL('./fixtures/character.json', import.meta.url)));
+const clone = structuredClone;
+const get = (object, path) => path.split('.').reduce((value, key) => value?.[key], object);
+function set(object, path, value) {
+    const keys = path.split('.');
+    const key = keys.pop();
+    for (const part of keys) object = object[part] ??= {};
+    object[key] = clone(value);
+}
+function merge(target, source) {
+    for (const [key, value] of Object.entries(source)) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) merge(target[key] ??= {}, value);
+        else target[key] = clone(value);
     }
-};
-
-// Import test data generators
-function generateMockArmorItem(name, depletion = null) {
+    return target;
+}
+class Collection extends Array {
+    get(id) { return this.find(item => item.id === id || item.collection === id); }
+}
+let nextId = 0;
+class Item {
+    constructor(data) { Object.assign(this, clone(data)); this.id = `item${++nextId}`; }
+    getFlag(namespace, key) { return this.flags?.[namespace]?.[key]; }
+    async update(update) { for (const [path, value] of Object.entries(update)) set(this, path, value); }
+}
+class MockActor {
+    items = new Collection(); effects = new Collection(); flags = {}; system = {}; deletions = [];
+    async createEmbeddedDocuments(type, data) {
+        assert.equal(type, 'Item');
+        const items = data.map(value => new Item(value));
+        this.items.push(...items);
+        return items;
+    }
+    async deleteEmbeddedDocuments(type, ids) {
+        this.deletions.push(...ids);
+        const key = type === 'Item' ? 'items' : 'effects';
+        this[key] = this[key].filter(item => !ids.includes(item.id));
+    }
+    async update(update) { merge(this, update); }
+    async setFlag(namespace, key, value) { set(this.flags, `${namespace}.${key}`, value); }
+}
+function pack(collection, data) {
     return {
-        id: 'test-item-' + Math.random().toString(36).substr(2, 9),
-        name,
-        type: 'armor',
-        system: {
-            armor: 2,
-            depleted: depletion === null ? false : true,
-            depletion: depletion || {
-                minor: 0,
-                major: 0,
-                severe: 0
-            },
-            quantity: 1
-        },
-        getFlag: () => true // Marked as imported
+        collection, documentName: 'Item', visible: true,
+        async getIndex() { return data.map((item, i) => ({ _id: String(i), name: item.name, type: item.type })); },
+        async getDocument(id) { return { uuid: `Compendium.${collection}.Item.${id}`, toObject: () => clone(data[Number(id)]) }; }
     };
 }
+const armor = { name: 'Mage Robes', type: 'armor', system: { equipped: false, quantity: 1, armor: { current: 0, max: 2 }, baseThresholds: { major: 4, severe: 10 } } };
+const weapon = name => ({ name, type: 'weapon', _id: 'compendium-id', system: { equipped: false, quantity: 1, secondary: false } });
+globalThis.Hooks = { once() {}, on() {} };
+globalThis.foundry = { utils: { deepClone: clone, mergeObject: merge, getProperty: get, setProperty: set, isEmpty: object => Object.keys(object).length === 0 } };
+globalThis.ui = { notifications: { warn() {} } };
+globalThis.game = { packs: new Collection() };
+const { syncImportedItems, buildSystemUpdate, findPackItem } = await import('./module.mjs');
+beforeEach(() => {
+    // Exercise mixed installed content: 2.6.4 public packs lack the robes/dagger.
+    game.packs = new Collection(
+        pack('daggerheart.weapons', [weapon('Dualstaff')]),
+        pack('daggerheart.consumables', [{ name: 'Minor Health Potion', type: 'consumable', system: { quantity: 1 } }]),
+        pack('extra.content', [{ name: 'Mage Robes', type: 'feature' }, armor, weapon('Casting Dagger')])
+    );
+});
+const normalized = () => normalizeDemiplaneCharacter(clone(fixture));
+const item = (actor, name) => actor.items.find(item => item.name === name);
 
-function generateMockCharacterWithConnections() {
-    return {
-        uuid: 'test-uuid-12345',
-        id: 9999,
-        name: 'Test Character',
-        level: 3,
-        avatar_url: 'https://example.com/avatar.png',
-        updated: new Date().toISOString(),
-        created: new Date().toISOString(),
-        data: {
-            engines: []
-        },
-        connections: [
-            {
-                toCharacterId: 'conn-1',
-                toCharacterName: 'Alice',
-                type: 'Ally',
-                description: 'Trusted companion'
-            },
-            {
-                toCharacterId: 'conn-2',
-                toCharacterName: 'Bob',
-                type: 'Rival',
-                description: 'Old nemesis'
-            }
-        ]
-    };
-}
+test('observed payload imports each real inventory instance once with descriptions', () => {
+    const n = normalized();
+    assert.deepEqual(n.selections.equipment.map(item => item.name), ['Casting Dagger', 'Dualstaff', 'Mage Robes', 'Minor Health Potion']);
+    assert.equal(n.selections.customEquipment.length, 5);
+    assert.match(n.selections.customEquipment.find(item => item.name === 'Nomadic Pack').description, /Hope/);
+});
+test('equipped IDs distinguish active dagger and robes from carried staff', () => {
+    assert.deepEqual(normalized().selections.equipment.map(item => item.equipped), [true, false, true, false]);
+});
+test('connections populate native biography field in numeric order', () => {
+    assert.equal(buildSystemUpdate(normalized()).biography.connections, '<p>Connection answer 0</p>\n<p>Connection answer 1</p>\n<p>Connection answer 2</p>');
+});
+test('empty connections clear previous answers and HTML is escaped', () => {
+    const n = normalized(); n.connections = [];
+    assert.equal(buildSystemUpdate(n).biography.connections, '');
+    n.connections = ['<img onerror="bad"> &\nnext'];
+    assert.equal(buildSystemUpdate(n).biography.connections, '<p>&lt;img onerror=&quot;bad&quot;&gt; &amp;<br>next</p>');
+});
+test('HTML parsing runs the production normalizer and rejects missing data', () => {
+    const text = `43:${JSON.stringify(['$', 'component', null, { characterSheetContent: fixture }])}`;
+    const html = `<script>self.__next_f.push(${JSON.stringify([1, text])})</script>`;
+    assert.equal(parseDemiplaneCharacterHtml(html).connections.length, 3);
+    assert.throws(() => parseDemiplaneCharacterHtml('<html>Private</html>'), /Could not find/);
+});
+test('same-name inventory copies retain independent identities', () => {
+    const f = clone(fixture);
+    const copy = clone(f.character.data.engines.find(engine => engine.name === 'tabula/equipment/dualstaff.eng'));
+    copy.demiplaneEngineId = 'second-staff'; f.character.data.engines.push(copy);
+    assert.equal(normalizeDemiplaneCharacter(f).selections.equipment.filter(item => item.name === 'Dualstaff').length, 2);
+});
+test('custom equipment takes precedence over source-row categorization', () => {
+    const f = clone(fixture); f.character.data.engines[0].args.sourceRow = 'inventory';
+    assert.equal(normalizeDemiplaneCharacter(f).selections.customEquipment.length, 5);
+});
+test('quantity zero is retained and invalid quantities are ignored', () => {
+    for (const [value, expected] of [[0, 0], ['3', 3], [-1, undefined], ['bad', undefined], ['', undefined]]) {
+        const f = clone(fixture); f.character.data.engines[0].args.quantity = value;
+        assert.equal(normalizeDemiplaneCharacter(f).selections.customEquipment[0].quantity, expected);
+    }
+});
+test('matching searches equipment types and installed packs, with slug fallback', async () => {
+    const found = await findPackItem('equipment', 'Mage Robes');
+    assert.equal(found.toObject().type, 'armor'); assert.match(found.uuid, /extra.content/);
+    assert.equal((await findPackItem('equipment', 'Renamed', 'minor-health-potion-playtest')).toObject().type, 'consumable');
+    assert.equal(await findPackItem('class', 'Mage Robes'), null);
+});
+test('import creates usable equipment, preserves source UUIDs and descriptions', async () => {
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    assert.equal(actor.items.length, 9);
+    assert.equal(item(actor, 'Casting Dagger').system.equipped, true);
+    assert.equal(item(actor, 'Dualstaff').system.equipped, false);
+    assert.equal(item(actor, 'Mage Robes').type, 'armor');
+    assert.equal(item(actor, 'Mage Robes').system.equipped, true);
+    assert.equal(item(actor, 'Casting Dagger')._id, undefined);
+    assert.match(item(actor, 'Casting Dagger')._stats.compendiumSource, /extra.content/);
+    assert.match(item(actor, 'Nomadic Pack').system.description, /Hope/);
+    assert.deepEqual(actor.flags[MODULE_ID].missingCompendiumMatches, []);
+});
+test('repeated refresh preserves armor marks without replacing new armor statistics', async () => {
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    item(actor, 'Mage Robes').system.armor.current = 2;
+    game.packs.push(pack('daggerheart.armors', [{ ...clone(armor), system: { ...clone(armor.system), armor: { current: 0, max: 4 }, baseThresholds: { major: 6, severe: 14 } } }]));
+    for (let i = 0; i < 3; i++) await syncImportedItems(actor, normalized());
+    assert.equal(actor.items.length, 9);
+    assert.deepEqual(item(actor, 'Mage Robes').system.armor, { current: 2, max: 4 });
+    assert.deepEqual(item(actor, 'Mage Robes').system.baseThresholds, { major: 6, severe: 14 });
+});
+test('source quantity/equipped changes override local state including zero/false', async () => {
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    const n = normalized(); n.selections.equipment[0].quantity = 0;
+    n.selections.equipment[0].equipped = false; n.selections.equipment[1].equipped = true;
+    await syncImportedItems(actor, n);
+    assert.equal(item(actor, 'Casting Dagger').system.quantity, 0);
+    assert.equal(item(actor, 'Casting Dagger').system.equipped, false);
+    assert.equal(item(actor, 'Dualstaff').system.equipped, true);
+});
+test('absent source quantity preserves local quantity', async () => {
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    item(actor, 'Minor Health Potion').system.quantity = 0;
+    await syncImportedItems(actor, normalized());
+    assert.equal(item(actor, 'Minor Health Potion').system.quantity, 0);
+});
+test('refresh removes deleted imports but preserves user items and effects', async () => {
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    const local = new Item({ name: 'Local item', type: 'loot' }); actor.items.push(local);
+    const effect = new Item({ origin: `Actor.test.Item.${local.id}` }); actor.effects.push(effect);
+    const orphan = new Item({ origin: 'Actor.test.Item.local-deleted-item' }); actor.effects.push(orphan);
+    const importedEffect = new Item({ flags: { [MODULE_ID]: { imported: true } } }); actor.effects.push(importedEffect);
+    const transferred = new Item({ origin: `Actor.test.Item.${item(actor, 'Casting Dagger').id}` }); actor.effects.push(transferred);
+    const n = normalized(); n.selections.equipment = []; await syncImportedItems(actor, n);
+    assert.equal(item(actor, 'Casting Dagger'), undefined);
+    assert.ok(actor.items.includes(local)); assert.ok(actor.effects.includes(effect));
+    assert.ok(actor.effects.includes(orphan));
+    assert.ok(!actor.effects.includes(importedEffect)); assert.ok(!actor.effects.includes(transferred));
+});
+test('compendium read failure happens before destructive item replacement', async () => {
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    const oldIds = actor.items.map(item => item.id);
+    game.packs[0].getIndex = async () => { throw new Error('Compendium unavailable'); };
+    await assert.rejects(syncImportedItems(actor, normalized()), /Compendium unavailable/);
+    assert.deepEqual(actor.items.map(item => item.id), oldIds); assert.deepEqual(actor.deletions, []);
+});
+test('missing mechanical content becomes a reported loot placeholder', async () => {
+    game.packs = new Collection(); const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    assert.equal(item(actor, 'Mage Robes').type, 'loot');
+    assert.ok(actor.flags[MODULE_ID].missingCompendiumMatches.includes('equipment: Mage Robes'));
+});
 
-// Test: captureItemState preserves armor depletion
-function testCaptureArmorState() {
-    console.log('\n✓ Test 1: Capture armor depletion state');
-    
-    const armor = generateMockArmorItem('Chainmail', { minor: 1, major: 2, severe: 0 });
-    
-    const capturedState = captureItemState(armor);
-    
-    if (!capturedState.depletion) {
-        throw new Error('Failed to capture depletion state');
-    }
-    if (capturedState.depletion.minor !== 1 || capturedState.depletion.major !== 2) {
-        throw new Error('Depletion state values incorrect: ' + JSON.stringify(capturedState.depletion));
-    }
-    
-    console.log(`  ✓ Captured depletion: ${JSON.stringify(capturedState.depletion)}`);
-    return true;
-}
+test('source traits override class suggestions used by spellcast armor effects', async () => {
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    assert.deepEqual(normalized().traits, { agility: 0, strength: -1, finesse: 0, instinct: 1, presence: 1, knowledge: 2 });
+    assert.equal(actor.system.traits.knowledge.value, 2);
+});
+test('class HP/evasion are not persisted twice and refresh does not stack bonuses', async () => {
+    game.packs.push(pack('daggerheart.classes', [{ name: 'Witch', type: 'class', system: { evasion: 10, hitPoints: 6 } }]));
+    const n = normalized(); n.selections.class = { name: 'Witch' };
+    n.selections.levelUps = [{ slug: 'add-hp' }, { slug: 'increase-evasion' }];
+    const actor = new MockActor();
+    for (let i = 0; i < 3; i++) await syncImportedItems(actor, n);
+    assert.equal(actor.system.resources.hitPoints.max, 1);
+    assert.equal(actor.system.evasion, 1);
+});
+test('armor marks migrate from older imports without source IDs and clamp to new max', async () => {
+    const actor = new MockActor();
+    const old = new Item({ ...clone(armor), flags: { [MODULE_ID]: { imported: true } } });
+    old.system.armor.current = 3; actor.items.push(old);
+    await syncImportedItems(actor, normalized());
+    assert.equal(item(actor, 'Mage Robes').system.armor.current, 2);
+});
+test('two identical weapons preserve independent local quantities after refresh', async () => {
+    const actor = new MockActor(); const n = normalized();
+    n.selections.equipment.push({ ...n.selections.equipment[1], sourceId: 'second-staff' });
+    await syncImportedItems(actor, n);
+    const staffs = actor.items.filter(item => item.name === 'Dualstaff');
+    staffs[0].system.quantity = 2; staffs[1].system.quantity = 5;
+    await syncImportedItems(actor, n);
+    assert.deepEqual(Array.from(actor.items.filter(item => item.name === 'Dualstaff'), item => item.system.quantity), [2, 5]);
+});
 
-// Test: restoreItemState applies saved state correctly
-function testRestoreArmorState() {
-    console.log('\n✓ Test 2: Restore armor depletion state');
-    
-    const savedState = {
-        depletion: { minor: 2, major: 1, severe: 0 },
-        armor: 2
-    };
-    
-    const newArmor = generateMockArmorItem('New Chainmail', { minor: 0, major: 0, severe: 0 });
-    
-    const result = {};
-    
-    if (savedState.depletion) {
-        result['system.depletion'] = MockFoundry.utils.deepClone(savedState.depletion);
+// Optional integration check executes the downloaded upstream method verbatim.
+// No Foundry runtime is bundled; its base class/settings are stubbed here.
+test('upstream 2.6.4 armor/threshold preparation consumes imported real compendium data', { skip: !process.env.DH_SOURCE_DIR }, async () => {
+    const root = process.env.DH_SOURCE_DIR;
+    const source = readFileSync(`${root}/dh264-module-data-actor-character.mjs`, 'utf8');
+    const start = source.indexOf('    prepareBaseData() {');
+    const end = source.indexOf('    prepareDerivedData()', start);
+    const getterStart = source.indexOf('    get armor() {');
+    const getterEnd = source.indexOf('\n    }', getterStart) + 6;
+    assert.ok(start > 0 && end > start && getterStart > 0);
+    const Base = class { prepareBaseData() {} };
+    const Model = new Function('Base', `return class extends Base { ${source.slice(getterStart, getterEnd)} ${source.slice(start, end)} }`)(Base);
+    const robes = JSON.parse(readFileSync(`${root}/armor_Mage_Robes_rWDk8ovwnBrBwWRR.json`));
+    const dagger = JSON.parse(readFileSync(`${root}/weapon_Casting_Dagger_eCEf5ysz8Eq0ma9u.json`));
+    game.packs.push(pack('daggerheart.armors', [robes]), pack('actual.weapons', [dagger]));
+    const actor = new MockActor(); await syncImportedItems(actor, normalized());
+    const imported = item(actor, 'Mage Robes');
+    assert.equal(imported.effects[0].system.changes[0].value, '@cast');
+    assert.equal(imported.effects[0].flags[MODULE_ID].imported, true);
+    globalThis.CONFIG = { DH: { id: 'daggerheart', SETTINGS: { gameSettings: { LevelTiers: 'tiers', Automation: 'auto', Homebrew: 'homebrew' } } } };
+    game.settings = { get: (_id, key) => key === 'tiers' ? { tiers: [{ tier: 2, levels: { start: 2, end: 4 } }] } : key === 'auto' ? { levelupAuto: false } : { maxHope: 6 } };
+    for (const [level, equipped, expected] of [[1, true, { major: 5, severe: 11 }], [3, true, { major: 7, severe: 13 }], [1, false, { major: 1, severe: 2 }]]) {
+        imported.system.equipped = equipped;
+        const model = new Model();
+        Object.assign(model, { parent: { items: actor.items, appliedEffects: [] }, class: { value: null }, evasion: 0, levelData: { level: { current: level } }, resources: { hope: {}, hitPoints: { max: 0 } } });
+        model.prepareBaseData();
+        assert.deepEqual(model.damageThresholds, expected);
     }
-    if (savedState.armor) {
-        result['system.armor'] = savedState.armor;
-    }
-    
-    if (!MockFoundry.utils.isEmpty(result)) {
-        console.log(`  ✓ Would apply updates: ${JSON.stringify(result)}`);
-        if (result['system.depletion'].minor !== 2) {
-            throw new Error('Failed to restore depletion state');
-        }
-    }
-    
-    return true;
-}
-
-// Test: collectConnections extracts connection data correctly
-function testCollectConnections() {
-    console.log('\n✓ Test 3: Collect connections from character');
-    
-    const character = generateMockCharacterWithConnections();
-    
-    if (!Array.isArray(character.connections)) {
-        throw new Error('Character should have connections array');
-    }
-    
-    const connections = [];
-    for (const connection of character.connections) {
-        if (connection) {
-            connections.push({
-                toCharacterId: connection.toCharacterId || connection.id,
-                toCharacterName: connection.toCharacterName || connection.name || 'Unknown',
-                connectionType: connection.type || 'Connection',
-                description: connection.description || ''
-            });
-        }
-    }
-    
-    if (connections.length !== 2) {
-        throw new Error(`Expected 2 connections, got ${connections.length}`);
-    }
-    
-    if (connections[0].toCharacterName !== 'Alice' || connections[0].connectionType !== 'Ally') {
-        throw new Error('First connection data incorrect: ' + JSON.stringify(connections[0]));
-    }
-    
-    if (connections[1].toCharacterName !== 'Bob' || connections[1].connectionType !== 'Rival') {
-        throw new Error('Second connection data incorrect: ' + JSON.stringify(connections[1]));
-    }
-    
-    console.log(`  ✓ Extracted ${connections.length} connections:`);
-    connections.forEach(c => {
-        console.log(`    - ${c.toCharacterName} (${c.connectionType}): ${c.description}`);
-    });
-    
-    return true;
-}
-
-// Test: Connection deduplication
-function testConnectionDeduplication() {
-    console.log('\n✓ Test 4: Deduplicate connections');
-    
-    const character = {
-        connections: [
-            { toCharacterId: 'id-1', toCharacterName: 'Alice', type: 'Ally', description: 'First' },
-            { toCharacterId: 'id-1', toCharacterName: 'Alice', type: 'Ally', description: 'Duplicate' },
-            { toCharacterId: 'id-2', toCharacterName: 'Bob', type: 'Rival', description: 'Unique' }
-        ]
-    };
-    
-    const connections = [];
-    for (const connection of character.connections) {
-        connections.push({
-            toCharacterId: connection.toCharacterId,
-            toCharacterName: connection.toCharacterName,
-            connectionType: connection.type,
-            description: connection.description
-        });
-    }
-    
-    const seen = new Set();
-    const deduped = [];
-    for (const connection of connections) {
-        const key = `${connection.toCharacterId}:${connection.toCharacterName.toLowerCase()}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            deduped.push(connection);
-        }
-    }
-    
-    if (deduped.length !== 2) {
-        throw new Error(`Expected 2 deduplicated connections, got ${deduped.length}`);
-    }
-    
-    console.log(`  ✓ Deduplicated to ${deduped.length} unique connections`);
-    
-    return true;
-}
-
-// Test: Biography summary includes connections
-function testBiographySummary() {
-    console.log('\n✓ Test 5: Biography includes connections');
-    
-    const normalized = {
-        sourceUrl: 'https://app.demiplane.com/character/test-uuid',
-        level: 3,
-        selections: {
-            class: { name: 'Bard' },
-            subclass: { name: 'Troubadour' },
-            ancestry: { name: 'Human' },
-            community: { name: 'City' },
-            domainCards: [],
-            levelUps: []
-        },
-        connections: [
-            { toCharacterName: 'Alice', connectionType: 'Ally' },
-            { toCharacterName: 'Bob', connectionType: 'Rival' }
-        ]
-    };
-    
-    const s = normalized.selections;
-    const connections = normalized.connections || [];
-    const lines = [
-        `<p><strong>Imported from Demiplane:</strong> <a href="${normalized.sourceUrl}">${normalized.sourceUrl}</a></p>`,
-        '<ul>',
-        `<li><strong>Level:</strong> ${normalized.level}</li>`,
-        s.class ? `<li><strong>Class:</strong> ${s.class.name}</li>` : '',
-        s.subclass ? `<li><strong>Subclass:</strong> ${s.subclass.name}</li>` : '',
-        s.ancestry ? `<li><strong>Ancestry:</strong> ${s.ancestry.name}</li>` : '',
-        s.community ? `<li><strong>Community:</strong> ${s.community.name}</li>` : '',
-        connections.length ? `<li><strong>Connections:</strong> ${connections.map(c => `${c.toCharacterName} (${c.connectionType})`).join(', ')}</li>` : '',
-        '</ul>'
-    ];
-    const biography = lines.filter(Boolean).join('\n');
-    
-    if (!biography.includes('Alice (Ally)')) {
-        throw new Error('Biography missing Alice connection');
-    }
-    if (!biography.includes('Bob (Rival)')) {
-        throw new Error('Biography missing Bob connection');
-    }
-    
-    console.log(`  ✓ Biography includes connections`);
-    console.log(`  Sample: ...${biography.substring(biography.indexOf('Connections'), biography.indexOf('</li>') + 5)}...`);
-    
-    return true;
-}
-
-// Helper functions to match the actual implementation
-function captureItemState(item) {
-    const state = {};
-    
-    if (item.type === 'armor') {
-        if (item.system?.depleted !== undefined) {
-            state.depleted = item.system.depleted;
-        }
-        if (item.system?.depletion !== undefined) {
-            state.depletion = MockFoundry.utils.deepClone(item.system.depletion);
-        }
-        if (item.system?.armor !== undefined) {
-            state.armor = item.system.armor;
-        }
-    }
-    
-    if (item.system?.quantity !== undefined) {
-        state.quantity = item.system.quantity;
-    }
-    if (item.system?.uses !== undefined) {
-        state.uses = MockFoundry.utils.deepClone(item.system.uses);
-    }
-    
-    return state;
-}
-
-// Run all tests
-async function runTests() {
-    console.log('====================================');
-    console.log('Testing Armor Durability & Connections Fixes');
-    console.log('====================================');
-    
-    const tests = [
-        testCaptureArmorState,
-        testRestoreArmorState,
-        testCollectConnections,
-        testConnectionDeduplication,
-        testBiographySummary
-    ];
-    
-    let passed = 0;
-    let failed = 0;
-    
-    for (const test of tests) {
-        try {
-            test();
-            passed++;
-        } catch (error) {
-            console.error(`  ✗ FAILED: ${error.message}`);
-            failed++;
-        }
-    }
-    
-    console.log('\n====================================');
-    console.log(`Results: ${passed} passed, ${failed} failed`);
-    console.log('====================================\n');
-    
-    if (failed === 0) {
-        console.log('✓ All tests passed! The fixes are working correctly.');
-        console.log('\nNext steps:');
-        console.log('1. Deploy the updated module to your Foundry server');
-        console.log('2. Test with a real Demiplane character:');
-        console.log('   - Import a character with armor');
-        console.log('   - Add some depletion to the armor');
-        console.log('   - Click "Update from Demiplane"');
-        console.log('   - Verify armor depletion is preserved');
-        console.log('3. Test connections:');
-        console.log('   - Verify connections appear in biography');
-        console.log('   - Update the character and verify connections persist');
-    } else {
-        process.exit(1);
-    }
-}
-
-// Run tests
-runTests().catch(console.error);
+});

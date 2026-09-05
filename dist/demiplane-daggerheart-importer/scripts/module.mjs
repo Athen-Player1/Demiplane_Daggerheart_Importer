@@ -1,4 +1,4 @@
-import { MODULE_ID, extractDemiplaneCharacterId, parseDemiplaneCharacterHtml, summarizeForBiography } from './parser.mjs';
+import { MODULE_ID, extractDemiplaneCharacterId, parseDemiplaneCharacterHtml, summarizeForBiography, connectionsForBiography, escapeHtml } from './parser.mjs';
 
 const TEMPLATE = `modules/${MODULE_ID}/templates/import-dialog.hbs`;
 const PACKS = {
@@ -270,10 +270,11 @@ function buildActorUpdate(normalized) {
     };
 }
 
-function buildSystemUpdate(normalized) {
+export function buildSystemUpdate(normalized) {
     return {
         biography: {
-            background: summarizeForBiography(normalized)
+            background: summarizeForBiography(normalized),
+            connections: connectionsForBiography(normalized)
         },
         levelData: {
             level: {
@@ -297,7 +298,7 @@ function buildFlags(normalized) {
     };
 }
 
-async function syncImportedItems(actor, normalized) {
+export async function syncImportedItems(actor, normalized) {
     const oldImportedIds = actor.items
         .filter(item => item.getFlag(MODULE_ID, 'imported'))
         .map(item => item.id);
@@ -307,31 +308,32 @@ async function syncImportedItems(actor, normalized) {
     for (const itemId of oldImportedIds) {
         const item = actor.items.get(itemId);
         if (item) {
-            itemStateMap.set(item.name.toLowerCase(), captureItemState(item));
+            const key = item.getFlag(MODULE_ID, 'sourceId') ?? `${item.type}:${item.name.toLowerCase()}`;
+            const states = itemStateMap.get(key) ?? [];
+            states.push(captureItemState(item));
+            itemStateMap.set(key, states);
         }
     }
     
-    await cleanupImportedEffects(actor, oldImportedIds);
-    if (oldImportedIds.length) await actor.deleteEmbeddedDocuments('Item', oldImportedIds);
-
     const selections = {
         class: normalized.selections.class && { kind: 'class', ...normalized.selections.class },
         ancestry: normalized.selections.ancestry && { kind: 'ancestry', ...normalized.selections.ancestry },
         community: normalized.selections.community && { kind: 'community', ...normalized.selections.community },
         subclass: normalized.selections.subclass && { kind: 'subclass', ...normalized.selections.subclass },
         domains: normalized.selections.domainCards.map(x => ({ kind: 'domain', ...x })),
-        equipment: normalized.selections.equipment.map(x => ({ kind: guessEquipmentKind(x), ...x })),
+        equipment: normalized.selections.equipment.map(x => ({ kind: 'equipment', ...x })),
         customEquipment: normalized.selections.customEquipment.map(x => ({ kind: 'loot', ...x }))
     };
 
     const missing = [];
     const createdItems = [];
-    const createSelectionBatch = async batch => {
+    const prepareSelectionBatch = async batch => {
         const itemData = [];
         for (const selection of batch.filter(Boolean)) {
-            const found = await findPackItem(selection.kind, selection.name);
+            const found = await findPackItem(selection.kind, selection.name, selection.slug);
             if (found) {
                 const data = found.toObject();
+                delete data._id;
                 // Preserve the compendium origin. Foundryborne's Daggerheart system
                 // uses Item#sourceUuid to validate subclass <-> class links. A plain
                 // toObject/createEmbeddedDocuments copy can lose that origin, making a
@@ -345,12 +347,24 @@ async function syncImportedItems(actor, normalized) {
                     effect.flags = foundry.utils.mergeObject(effect.flags ?? {}, itemFlags(selection));
                     return effect;
                 });
+                applyInventorySelection(data, selection);
                 itemData.push(data);
             } else {
-                missing.push(`${selection.kind}: ${selection.name}`);
+                if (selection.kind !== 'loot') missing.push(`${selection.kind}: ${selection.name}`);
                 itemData.push(buildPlaceholderLoot(selection));
             }
         }
+        return itemData;
+    };
+    // Resolve all compendium documents before removing anything from the actor.
+    const prepared = {};
+    for (const [key, batch] of Object.entries(selections)) {
+        prepared[key] = await prepareSelectionBatch(Array.isArray(batch) ? batch : [batch]);
+    }
+    await cleanupImportedEffects(actor, oldImportedIds);
+    if (oldImportedIds.length) await actor.deleteEmbeddedDocuments('Item', oldImportedIds);
+
+    const createSelectionBatch = async itemData => {
         if (!itemData.length) return [];
         const created = await actor.createEmbeddedDocuments('Item', itemData);
         createdItems.push(...created);
@@ -360,23 +374,32 @@ async function syncImportedItems(actor, normalized) {
     // Foundryborne validates some item types against already-created actor state:
     // subclass and domain cards require a class to exist, and domain cards require
     // the class domains to be known. Create dependency-bearing items in waves.
-    const createdClassItems = await createSelectionBatch([selections.class]);
+    const createdClassItems = await createSelectionBatch(prepared.class);
     await applyClassDerivedStats(actor, createdClassItems[0], normalized);
-    await createSelectionBatch([selections.ancestry, selections.community]);
-    await createSelectionBatch([selections.subclass]);
-    await createSelectionBatch(selections.equipment);
-    await createSelectionBatch(selections.domains);
-    await createSelectionBatch(selections.customEquipment);
+    await createSelectionBatch([...prepared.ancestry, ...prepared.community]);
+    await createSelectionBatch(prepared.subclass);
+    await createSelectionBatch(prepared.equipment);
+    await createSelectionBatch(prepared.domains);
+    await createSelectionBatch(prepared.customEquipment);
 
     // Restore preserved item state (armor durability, etc.)
     for (const createdItem of createdItems) {
-        const savedState = itemStateMap.get(createdItem.name.toLowerCase());
+        const key = createdItem.getFlag(MODULE_ID, 'sourceId');
+        const savedState = (itemStateMap.get(key) ?? itemStateMap.get(`${createdItem.type}:${createdItem.name.toLowerCase()}`))?.shift();
         if (savedState) {
             await restoreItemState(createdItem, savedState);
         }
     }
 
     await actor.setFlag(MODULE_ID, 'missingCompendiumMatches', missing);
+    if (missing.length) ui.notifications.warn(`Demiplane: no compendium match for ${missing.join(', ')}. Imported as loot placeholders; install the matching content to enable its mechanics.`);
+}
+
+function applyInventorySelection(data, selection) {
+    if (!['weapon', 'armor', 'consumable', 'loot'].includes(data.type)) return;
+    data.system ??= {};
+    if (selection.quantity !== undefined) data.system.quantity = selection.quantity;
+    if (['weapon', 'armor'].includes(data.type) && selection.equipped !== undefined) data.system.equipped = selection.equipped;
 }
 
 function captureItemState(item) {
@@ -392,8 +415,8 @@ function captureItemState(item) {
         if (item.system?.depletion !== undefined) {
             state.depletion = foundry.utils.deepClone(item.system.depletion);
         }
-        if (item.system?.armor !== undefined) {
-            state.armor = item.system.armor;
+        if (item.system?.armor?.current !== undefined) {
+            state.armorCurrent = item.system.armor.current;
         }
     }
     
@@ -401,6 +424,7 @@ function captureItemState(item) {
     if (item.system?.quantity !== undefined) {
         state.quantity = item.system.quantity;
     }
+    if (item.system?.equipped !== undefined) state.equipped = item.system.equipped;
     if (item.system?.uses !== undefined) {
         state.uses = foundry.utils.deepClone(item.system.uses);
     }
@@ -418,12 +442,13 @@ async function restoreItemState(item, savedState) {
     if (savedState.depletion !== undefined) {
         update['system.depletion'] = foundry.utils.deepClone(savedState.depletion);
     }
-    if (savedState.armor !== undefined) {
-        update['system.armor'] = savedState.armor;
+    if (savedState.armorCurrent !== undefined && item.type === 'armor') {
+        update['system.armor.current'] = Math.max(0, Math.min(savedState.armorCurrent, item.system.armor.max));
     }
-    if (savedState.quantity !== undefined) {
+    if (savedState.quantity !== undefined && item.getFlag(MODULE_ID, 'sourceQuantity') === undefined) {
         update['system.quantity'] = savedState.quantity;
     }
+    if (savedState.equipped !== undefined && item.getFlag(MODULE_ID, 'sourceEquipped') === undefined) update['system.equipped'] = savedState.equipped;
     if (savedState.uses !== undefined) {
         update['system.uses'] = foundry.utils.deepClone(savedState.uses);
     }
@@ -443,11 +468,8 @@ async function cleanupImportedEffects(actor, oldImportedIds = []) {
             if (!itemId) return false;
             if (oldItemIds.has(itemId)) return true;
 
-            const sourceItem = actor.items.get(itemId);
-            // Transferred item effects can survive after their source item is deleted.
-            // Clean those orphaned actor-level effects during import refreshes to
-            // prevent one extra copy per Demiplane update.
-            return !sourceItem || Boolean(sourceItem.getFlag(MODULE_ID, 'imported'));
+            // An orphan alone is not evidence that this importer owns an effect.
+            return false;
         })
         .map(effect => effect.id);
 
@@ -455,28 +477,19 @@ async function cleanupImportedEffects(actor, oldImportedIds = []) {
 }
 
 async function applyClassDerivedStats(actor, classItem, normalized) {
-    if (!classItem) return;
     const update = {};
-    const suggestedTraits = classItem.system?.characterGuide?.suggestedTraits;
+    const suggestedTraits = normalized.traits ?? classItem?.system?.characterGuide?.suggestedTraits;
     for (const [trait, value] of Object.entries(suggestedTraits ?? {})) {
         foundry.utils.setProperty(update, `system.traits.${trait}.value`, Number(value) || 0);
     }
 
-    if (Number.isNumeric?.(classItem.system?.evasion) || Number.isFinite(Number(classItem.system?.evasion))) {
-        foundry.utils.setProperty(update, 'system.evasion', Number(classItem.system.evasion));
-    }
-
+    // Foundryborne 2.6.4 adds class HP/evasion in prepareBaseData. Persist only
+    // level-up bonuses, otherwise class base values are counted twice.
     const hpBonus = normalized.selections.levelUps.filter(x => x.slug === 'add-hp').length;
-    const baseHp = Number(classItem.system?.hitPoints);
-    if (Number.isFinite(baseHp)) {
-        foundry.utils.setProperty(update, 'system.resources.hitPoints.max', baseHp + hpBonus);
-    }
-
     const evasionBonus = normalized.selections.levelUps.filter(x => x.slug === 'increase-evasion').length;
-    if (evasionBonus) {
-        // Use the class evasion we just set, not the actor's old value
-        const baseEvasion = Number(foundry.utils.getProperty(update, 'system.evasion') ?? 0);
-        foundry.utils.setProperty(update, 'system.evasion', baseEvasion + evasionBonus);
+    if (classItem?.type === 'class') {
+        foundry.utils.setProperty(update, 'system.resources.hitPoints.max', hpBonus);
+        foundry.utils.setProperty(update, 'system.evasion', evasionBonus);
     }
 
     if (!foundry.utils.isEmpty(update)) await actor.update(update);
@@ -488,7 +501,10 @@ function itemFlags(selection) {
             imported: true,
             sourceName: selection.name,
             sourceSlug: selection.slug,
-            sourceKind: selection.kind
+            sourceKind: selection.kind,
+            sourceId: selection.sourceId,
+            sourceQuantity: selection.quantity,
+            sourceEquipped: selection.equipped
         }
     };
 }
@@ -497,28 +513,30 @@ function buildPlaceholderLoot(selection) {
     return {
         name: selection.name,
         type: 'loot',
+        system: {
+            quantity: selection.quantity ?? 1,
+            description: selection.description ? `<p>${escapeHtml(selection.description)}</p>` : ''
+        },
         flags: itemFlags(selection)
     };
 }
 
-function guessEquipmentKind(selection) {
-    const slug = `${selection.slug ?? ''} ${selection.name ?? ''}`.toLowerCase();
-    if (slug.includes('armor') || slug.includes('gambeson') || slug.includes('chainmail')) return 'armor';
-    if (slug.includes('potion')) return 'consumable';
-    return 'weapon';
-}
-
-async function findPackItem(kind, name) {
-    const normalized = normalizeName(name);
-    for (const packId of PACKS[kind] ?? []) {
+export async function findPackItem(kind, name, slug) {
+    const kinds = kind === 'equipment' ? ['weapon', 'armor', 'consumable', 'loot'] : [kind];
+    const types = kinds.map(value => value === 'domain' ? 'domainCard' : value);
+    const packIds = [...new Set([
+        ...kinds.flatMap(value => PACKS[value] ?? []),
+        ...Array.from(game.packs).filter(pack => pack.documentName === 'Item' && pack.visible !== false).map(pack => pack.collection)
+    ])];
+    const names = [...new Set([name, slug].filter(Boolean).map(normalizeName))];
+    for (const normalized of names) for (const packId of packIds) {
         const pack = game.packs.get(packId);
         if (!pack) continue;
         const index = await pack.getIndex({ fields: ['name', 'type'] });
-        const hit = index.find(entry => normalizeName(entry.name) === normalized);
+        const hit = index.find(entry => types.includes(entry.type) && normalizeName(entry.name) === normalized);
         if (hit) return pack.getDocument(hit._id);
     }
 
-    if (['weapon', 'armor', 'consumable'].includes(kind)) return findPackItem('loot', name);
     return null;
 }
 
@@ -527,6 +545,7 @@ function normalizeName(name) {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, ' ')
         .replace(/\bplaytest\b/g, '')
+        .replace(/\s+/g, ' ')
         .trim();
 }
 

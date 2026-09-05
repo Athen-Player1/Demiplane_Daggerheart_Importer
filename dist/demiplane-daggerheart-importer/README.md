@@ -41,10 +41,13 @@ Currently imported/synced:
 - Community
 - Domain cards
 - Equipment
+- Equipped weapons and armor, including the carried/equipped distinction
+- Connection answers in the actor sheet's native Connections field
+- Custom equipment descriptions and explicit inventory quantities
 - Custom equipment as loot placeholders
 - Basic biography/import summary
 - Demiplane source URL/id stored as actor flags
-- Class-derived suggested trait values from Foundryborne compendium data
+- Demiplane's selected starting traits, with class suggestions as a fallback
 - Class-derived HP/evasion values where available
 - Recognized level-up choices such as extra HP slot and increased evasion
 
@@ -147,6 +150,10 @@ Known limitations:
 - Some stats are derived from Foundryborne class data and recognized choices rather than copied from a final Demiplane stat block.
 - Level-up support is partial.
 - Item matching is name-based against Foundryborne compendium packs.
+- Matching also searches accessible installed Item packs and the source slug. Some content (including Casting Dagger and Mage Robes) is absent from the public 2.6.4 packs; install matching content for working mechanics. Missing matches produce a warning and loot placeholders.
+- Thresholds use Foundryborne's equipped armor, level, and item effects. The importer does not copy final computed thresholds from Demiplane. Correct compendium content is required, including spellcast bonuses such as Mage Robes' Enchanted feature.
+- Demiplane connection answers replace the native Connections field on refresh, including clearing removed answers.
+- Explicit source quantities/equipped states take precedence on refresh; unavailable values preserve local state. Armor marks are preserved without overwriting the compendium's armor score or thresholds.
 - Homebrew or renamed Demiplane content may become placeholder loot if no compendium match is found.
 - Actor update replaces previously imported items flagged by this module, but does not intentionally delete user-created/non-imported items.
 - UI button placement may vary as Foundryborne updates its ApplicationV2 sheets.
@@ -220,6 +227,10 @@ actor.getFlag('demiplane-daggerheart-importer', 'missingCompendiumMatches')
 If the browser blocks Demiplane requests, configure the CORS proxy setting as described above.
 
 ## Development
+
+The Node test suite exercises production parser and sync functions with mocked Foundry documents. Its fixture preserves the observed engine structure while removing character identity and replacing connection answers. No dependencies are required.
+
+An optional upstream integration test runs the actual 2.6.4 `prepareBaseData` method with mocked base class/settings. Set `DH_SOURCE_DIR` to a directory containing `dh264-module-data-actor-character.mjs` (from the 2.6.4 tag), `armor_Mage_Robes_rWDk8ovwnBrBwWRR.json`, and `weapon_Casting_Dagger_eCEf5ysz8Eq0ma9u.json` (from the upstream main branch). This checks base thresholds and retained armor effects; it does not replace testing a running Foundry world.
 
 Useful local commands:
 

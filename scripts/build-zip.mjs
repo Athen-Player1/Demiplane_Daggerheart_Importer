@@ -9,10 +9,18 @@ const dist = resolve(root, 'dist');
 const staging = resolve(dist, id);
 const zip = resolve(dist, `${id}-${manifest.version}.zip`);
 
+if (!/^[a-z0-9-]+$/.test(id) || !/^[0-9.]+$/.test(manifest.version) ||
+    resolve(staging, '..') !== dist || resolve(zip, '..') !== dist) {
+    throw new Error('Build targets must be direct children of the project dist directory.');
+}
 await rm(staging, { recursive: true, force: true });
 await mkdir(staging, { recursive: true });
-for (const entry of ['module.json', 'scripts', 'styles', 'templates', 'lang', 'README.md']) {
+for (const entry of ['module.json', 'styles', 'templates', 'lang', 'README.md']) {
     await cp(resolve(root, entry), resolve(staging, basename(entry)), { recursive: true });
+}
+await mkdir(resolve(staging, 'scripts'), { recursive: true });
+for (const file of ['module.mjs', 'parser.mjs']) {
+    await cp(resolve(root, 'scripts', file), resolve(staging, 'scripts', file));
 }
 await rm(zip, { force: true });
 
@@ -31,7 +39,7 @@ print(zip_path)
 `;
 
 await new Promise((resolvePromise, reject) => {
-    const child = spawn('python3', ['-c', python], { stdio: 'inherit' });
+    const child = spawn(process.platform === 'win32' ? 'python' : 'python3', ['-c', python], { stdio: 'inherit' });
     child.on('error', reject);
     child.on('exit', code => code === 0 ? resolvePromise() : reject(new Error(`python zip exited ${code}`)));
 });
