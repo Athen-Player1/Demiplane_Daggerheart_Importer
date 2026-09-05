@@ -253,7 +253,8 @@ function buildFlags(normalized) {
             numericId: normalized.numericId,
             demiplaneUpdated: normalized.updated,
             importedAt: new Date().toISOString(),
-            selections: normalized.selections
+            selections: normalized.selections,
+            connections: normalized.connections || []
         }
     };
 }
@@ -262,6 +263,16 @@ async function syncImportedItems(actor, normalized) {
     const oldImportedIds = actor.items
         .filter(item => item.getFlag(MODULE_ID, 'imported'))
         .map(item => item.id);
+    
+    // Capture state of armor and other items before deletion to preserve durability/depletion
+    const itemStateMap = new Map();
+    for (const itemId of oldImportedIds) {
+        const item = actor.items.get(itemId);
+        if (item) {
+            itemStateMap.set(item.name.toLowerCase(), captureItemState(item));
+        }
+    }
+    
     await cleanupImportedEffects(actor, oldImportedIds);
     if (oldImportedIds.length) await actor.deleteEmbeddedDocuments('Item', oldImportedIds);
 
@@ -276,6 +287,7 @@ async function syncImportedItems(actor, normalized) {
     };
 
     const missing = [];
+    const createdItems = [];
     const createSelectionBatch = async batch => {
         const itemData = [];
         for (const selection of batch.filter(Boolean)) {
@@ -302,7 +314,9 @@ async function syncImportedItems(actor, normalized) {
             }
         }
         if (!itemData.length) return [];
-        return actor.createEmbeddedDocuments('Item', itemData);
+        const created = await actor.createEmbeddedDocuments('Item', itemData);
+        createdItems.push(...created);
+        return created;
     };
 
     // Foundryborne validates some item types against already-created actor state:
@@ -316,7 +330,69 @@ async function syncImportedItems(actor, normalized) {
     await createSelectionBatch(selections.domains);
     await createSelectionBatch(selections.customEquipment);
 
+    // Restore preserved item state (armor durability, etc.)
+    for (const createdItem of createdItems) {
+        const savedState = itemStateMap.get(createdItem.name.toLowerCase());
+        if (savedState) {
+            await restoreItemState(createdItem, savedState);
+        }
+    }
+
     await actor.setFlag(MODULE_ID, 'missingCompendiumMatches', missing);
+}
+
+function captureItemState(item) {
+    // Capture item state that should be preserved across import updates
+    // This is especially important for armor durability/depletion tracking
+    const state = {};
+    
+    if (item.type === 'armor') {
+        // Capture armor depletion state
+        if (item.system?.depleted !== undefined) {
+            state.depleted = item.system.depleted;
+        }
+        if (item.system?.depletion !== undefined) {
+            state.depletion = foundry.utils.deepClone(item.system.depletion);
+        }
+        if (item.system?.armor !== undefined) {
+            state.armor = item.system.armor;
+        }
+    }
+    
+    // Capture any quantity/consumed data
+    if (item.system?.quantity !== undefined) {
+        state.quantity = item.system.quantity;
+    }
+    if (item.system?.uses !== undefined) {
+        state.uses = foundry.utils.deepClone(item.system.uses);
+    }
+    
+    return state;
+}
+
+async function restoreItemState(item, savedState) {
+    // Restore captured item state to the newly created item
+    const update = {};
+    
+    if (savedState.depleted !== undefined) {
+        update['system.depleted'] = savedState.depleted;
+    }
+    if (savedState.depletion !== undefined) {
+        update['system.depletion'] = foundry.utils.deepClone(savedState.depletion);
+    }
+    if (savedState.armor !== undefined) {
+        update['system.armor'] = savedState.armor;
+    }
+    if (savedState.quantity !== undefined) {
+        update['system.quantity'] = savedState.quantity;
+    }
+    if (savedState.uses !== undefined) {
+        update['system.uses'] = foundry.utils.deepClone(savedState.uses);
+    }
+    
+    if (!foundry.utils.isEmpty(update)) {
+        await item.update(update);
+    }
 }
 
 async function cleanupImportedEffects(actor, oldImportedIds = []) {

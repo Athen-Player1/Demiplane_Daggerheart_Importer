@@ -57,6 +57,7 @@ export function normalizeDemiplaneCharacter(content, sourceUrl = '') {
     const character = content.character;
     const engines = character?.data?.engines ?? [];
     const selections = collectSelections(engines);
+    const connections = collectConnections(character);
 
     return {
         id: character?.uuid ?? content.characterId ?? extractDemiplaneCharacterId(sourceUrl),
@@ -68,6 +69,7 @@ export function normalizeDemiplaneCharacter(content, sourceUrl = '') {
         updated: character?.updated ?? null,
         created: character?.created ?? null,
         selections,
+        connections,
         raw: {
             character,
             metadata: content.metadata,
@@ -133,7 +135,54 @@ function collectSelections(engines) {
     return result;
 }
 
-function slugFromEngineName(name) {
+function collectConnections(character) {
+    // Extract connections from Demiplane character data
+    // Connections can be stored in multiple places in Demiplane
+    const connections = [];
+    
+    // Check character.connections if it exists
+    if (Array.isArray(character?.connections)) {
+        for (const connection of character.connections) {
+            if (connection) {
+                connections.push({
+                    toCharacterId: connection.toCharacterId || connection.characterId || connection.id,
+                    toCharacterName: connection.toCharacterName || connection.characterName || connection.name || 'Unknown',
+                    connectionType: connection.type || connection.connectionType || 'Connection',
+                    description: connection.description || connection.notes || '',
+                    sourceUrl: connection.sourceUrl || connection.url || ''
+                });
+            }
+        }
+    }
+    
+    // Check if connections are stored in character.data object
+    if (Array.isArray(character?.data?.connections)) {
+        for (const connection of character.data.connections) {
+            if (connection) {
+                connections.push({
+                    toCharacterId: connection.toCharacterId || connection.characterId || connection.id,
+                    toCharacterName: connection.toCharacterName || connection.characterName || connection.name || 'Unknown',
+                    connectionType: connection.type || connection.connectionType || 'Connection',
+                    description: connection.description || connection.notes || '',
+                    sourceUrl: connection.sourceUrl || connection.url || ''
+                });
+            }
+        }
+    }
+    
+    // Deduplicate connections by ID
+    const seen = new Set();
+    const deduped = [];
+    for (const connection of connections) {
+        const key = `${connection.toCharacterId}:${connection.toCharacterName.toLowerCase()}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push(connection);
+        }
+    }
+    
+    return deduped;
+}
     const match = String(name).match(/tabula\/[a-z-]+\/([^/]+)\.eng$/);
     return match?.[1] ?? null;
 }
@@ -149,6 +198,7 @@ function titleFromSlug(slugOrEngine) {
 
 export function summarizeForBiography(normalized) {
     const s = normalized.selections;
+    const connections = normalized.connections || [];
     const lines = [
         `<p><strong>Imported from Demiplane:</strong> <a href="${normalized.sourceUrl}">${normalized.sourceUrl}</a></p>`,
         '<ul>',
@@ -159,6 +209,7 @@ export function summarizeForBiography(normalized) {
         s.community ? `<li><strong>Community:</strong> ${s.community.name}</li>` : '',
         s.domainCards.length ? `<li><strong>Domain Cards:</strong> ${s.domainCards.map(x => x.name).join(', ')}</li>` : '',
         s.levelUps.length ? `<li><strong>Level Ups:</strong> ${s.levelUps.map(x => x.name).join(', ')}</li>` : '',
+        connections.length ? `<li><strong>Connections:</strong> ${connections.map(c => `${c.toCharacterName} (${c.connectionType})`).join(', ')}</li>` : '',
         '</ul>'
     ];
     return lines.filter(Boolean).join('\n');
