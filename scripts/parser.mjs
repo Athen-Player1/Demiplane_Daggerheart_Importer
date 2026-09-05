@@ -183,6 +183,8 @@ function collectConnections(character) {
     
     return deduped;
 }
+
+function slugFromEngineName(name) {
     const match = String(name).match(/tabula\/[a-z-]+\/([^/]+)\.eng$/);
     return match?.[1] ?? null;
 }
