@@ -1,0 +1,18 @@
+<form class="demiplane-dh-importer-form">
+    <div class="form-group">
+        <label>{{localize "DEMIPLANE_DH.dialog.url"}}</label>
+        <div class="form-fields">
+            <input type="url" name="url" value="{{url}}" placeholder="https://app.demiplane.com/nexus/daggerheart/character-sheet/..." required />
+        </div>
+        <p class="hint">{{localize "DEMIPLANE_DH.dialog.urlHint"}}</p>
+    </div>
+
+    <footer class="sheet-footer flexrow">
+        <button type="submit">
+            <i class="fa-solid fa-file-import"></i> {{localize "DEMIPLANE_DH.dialog.import"}}
+        </button>
+        <button type="button" data-action="cancel">
+            <i class="fa-solid fa-xmark"></i> {{localize "DEMIPLANE_DH.dialog.cancel"}}
+        </button>
+    </footer>
+</form>

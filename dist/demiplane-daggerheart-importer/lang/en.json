@@ -1,0 +1,29 @@
+{
+  "DEMIPLANE_DH": {
+    "settings": {
+      "corsProxy": {
+        "name": "CORS proxy URL template",
+        "hint": "Optional. Use {url} for the encoded Demiplane URL. Leave blank to fetch Demiplane directly. Foundry hosted on another origin will usually need a small proxy because Demiplane pages do not expose CORS headers."
+      }
+    },
+    "controls": {
+      "import": "Import Demiplane DH Character",
+      "update": "Update from Demiplane"
+    },
+    "dialog": {
+      "title": "Import Demiplane Daggerheart Character",
+      "url": "Demiplane character sheet URL",
+      "urlHint": "Paste a URL like https://app.demiplane.com/nexus/daggerheart/character-sheet/<uuid>",
+      "import": "Import",
+      "cancel": "Cancel"
+    },
+    "notifications": {
+      "systemRequired": "Demiplane Daggerheart Importer requires the daggerheart system to be active.",
+      "imported": "Imported {name} from Demiplane.",
+      "updated": "Updated {name} from Demiplane.",
+      "noUrl": "This actor has no saved Demiplane URL. Re-import it or set flags.demiplane-daggerheart-importer.sourceUrl.",
+      "invalidUrl": "That does not look like a Demiplane Daggerheart character sheet URL.",
+      "corsHelp": "Could not fetch Demiplane. If this is a CORS error, configure the module CORS proxy setting or run a trusted local proxy."
+    }
+  }
+}
