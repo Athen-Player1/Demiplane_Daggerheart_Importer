@@ -58,9 +58,14 @@ function injectUpdateButton(app, htmlOrElement) {
     button.type = 'button';
     button.className = 'demiplane-dh-update-button demiplane-dh-sheet-action';
     button.innerHTML = `<i class="fa-solid fa-rotate"></i> ${game.i18n.localize('DEMIPLANE_DH.controls.update')}`;
+    button.title = 'Update from Demiplane (Shift+Click to edit URL)';
     button.addEventListener('click', event => {
         event.preventDefault();
-        updateActorFromSavedUrl(actor);
+        if (event.shiftKey) {
+            editActorSourceUrl(actor);
+        } else {
+            updateActorFromSavedUrl(actor);
+        }
     });
 
     const target = root.querySelector('.character-header-sheet .downtime-section')
@@ -167,6 +172,40 @@ async function promptForActorSourceUrl(actor) {
                     try {
                         validateUrl(url);
                         await actor.setFlag(MODULE_ID, 'sourceUrl', url);
+                        resolve(url);
+                        root.closest('.app')?.querySelector('.header-button.close')?.click();
+                    } catch (error) {
+                        ui.notifications.error(error.message);
+                    }
+                });
+                root.querySelector('[data-action="cancel"]')?.addEventListener('click', event => {
+                    resolve(null);
+                    event.currentTarget.closest('.app')?.querySelector('.header-button.close')?.click();
+                });
+            }
+        }).render(true);
+    });
+}
+
+async function editActorSourceUrl(actor) {
+    if (!actor) return;
+    const currentUrl = actor.getFlag(MODULE_ID, 'sourceUrl') || '';
+    const content = await foundry.applications.handlebars.renderTemplate(TEMPLATE, { url: currentUrl });
+    return new Promise(resolve => {
+        new Dialog({
+            title: `Edit Demiplane URL: ${actor.name}`,
+            content,
+            buttons: {},
+            close: () => resolve(null),
+            render: html => {
+                const root = html instanceof jQuery ? html[0] : html;
+                root.querySelector('form')?.addEventListener('submit', async event => {
+                    event.preventDefault();
+                    const url = new FormData(event.currentTarget).get('url');
+                    try {
+                        validateUrl(url);
+                        await actor.setFlag(MODULE_ID, 'sourceUrl', url);
+                        ui.notifications.info(`${actor.name}'s Demiplane URL has been updated`);
                         resolve(url);
                         root.closest('.app')?.querySelector('.header-button.close')?.click();
                     } catch (error) {
@@ -494,5 +533,6 @@ function normalizeName(name) {
 globalThis.DemiplaneDaggerheartImporter = {
     importFromUrl,
     updateActorFromSavedUrl,
+    editActorSourceUrl,
     parseDemiplaneCharacterHtml
 };
