@@ -62,7 +62,7 @@ globalThis.Hooks = { once() {}, on() {} };
 globalThis.foundry = { utils: { deepClone: clone, mergeObject: merge, getProperty: get, setProperty: set, isEmpty: object => Object.keys(object).length === 0 } };
 globalThis.ui = { notifications: { warn() {} } };
 globalThis.game = { packs: new Collection() };
-const { syncImportedItems, buildSystemUpdate, findPackItem } = await import('./module.mjs');
+const { syncImportedItems, buildSystemUpdate, findPackItem, buildActorCreateData, buildActorUpdate } = await import('./module.mjs');
 beforeEach(() => {
     // Exercise mixed installed content: 2.6.4 public packs lack the robes/dagger.
     game.packs = new Collection(
@@ -79,6 +79,11 @@ test('observed payload imports each real inventory instance once with descriptio
     assert.deepEqual(n.selections.equipment.map(item => item.name), ['Casting Dagger', 'Dualstaff', 'Mage Robes', 'Minor Health Potion']);
     assert.equal(n.selections.customEquipment.length, 5);
     assert.match(n.selections.customEquipment.find(item => item.name === 'Nomadic Pack').description, /Hope/);
+});
+test('portrait is copied to the actor prototype token texture', () => {
+    const n = normalized();
+    assert.equal(buildActorCreateData(n).prototypeToken.texture.src, n.img);
+    assert.equal(buildActorUpdate(n).prototypeToken.texture.src, n.img);
 });
 test('equipped IDs distinguish active dagger and robes from carried staff', () => {
     assert.deepEqual(normalized().selections.equipment.map(item => item.equipped), [true, false, true, false]);

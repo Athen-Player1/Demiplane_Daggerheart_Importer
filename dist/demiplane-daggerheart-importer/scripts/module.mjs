@@ -245,26 +245,29 @@ function validateUrl(url) {
     if (!extractDemiplaneCharacterId(url)) throw new Error(game.i18n.localize('DEMIPLANE_DH.notifications.invalidUrl'));
 }
 
-function buildActorCreateData(normalized) {
+export function buildActorCreateData(normalized) {
     return {
         name: normalized.name,
         type: 'character',
         img: normalized.img,
+        prototypeToken: buildPrototypeToken(normalized.img),
         flags: buildFlags(normalized)
     };
 }
 
-function buildActorPostCreateUpdate(normalized) {
+export function buildActorPostCreateUpdate(normalized) {
     return {
         system: buildSystemUpdate(normalized),
+        prototypeToken: buildPrototypeToken(normalized.img),
         flags: buildFlags(normalized)
     };
 }
 
-function buildActorUpdate(normalized) {
+export function buildActorUpdate(normalized) {
     return {
         name: normalized.name,
         img: normalized.img,
+        prototypeToken: buildPrototypeToken(normalized.img),
         system: buildSystemUpdate(normalized),
         flags: buildFlags(normalized)
     };
@@ -398,6 +401,10 @@ export async function syncImportedItems(actor, normalized) {
 
     await actor.setFlag(MODULE_ID, 'missingCompendiumMatches', missing);
     if (missing.length) ui.notifications.warn(`Demiplane: no compendium match for ${missing.join(', ')}. Imported as loot placeholders; install the matching content to enable its mechanics.`);
+}
+
+function buildPrototypeToken(img) {
+    return { texture: { src: img } };
 }
 
 function applyInventorySelection(data, selection) {
