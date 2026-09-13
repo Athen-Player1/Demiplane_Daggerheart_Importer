@@ -83,7 +83,7 @@ test('observed payload imports each real inventory instance once with descriptio
 test('portrait is copied to the actor prototype token texture', () => {
     const n = normalized();
     assert.equal(buildActorCreateData(n).prototypeToken.texture.src, n.img);
-    assert.equal(buildActorUpdate(n).prototypeToken.texture.src, n.img);
+    assert.equal(buildActorUpdate(n)['prototypeToken.texture.src'], n.img);
 });
 test('equipped IDs distinguish active dagger and robes from carried staff', () => {
     assert.deepEqual(normalized().selections.equipment.map(item => item.equipped), [true, false, true, false]);

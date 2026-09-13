@@ -258,7 +258,7 @@ export function buildActorCreateData(normalized) {
 export function buildActorPostCreateUpdate(normalized) {
     return {
         system: buildSystemUpdate(normalized),
-        prototypeToken: buildPrototypeToken(normalized.img),
+        'prototypeToken.texture.src': normalized.img,
         flags: buildFlags(normalized)
     };
 }
@@ -267,7 +267,7 @@ export function buildActorUpdate(normalized) {
     return {
         name: normalized.name,
         img: normalized.img,
-        prototypeToken: buildPrototypeToken(normalized.img),
+        'prototypeToken.texture.src': normalized.img,
         system: buildSystemUpdate(normalized),
         flags: buildFlags(normalized)
     };
