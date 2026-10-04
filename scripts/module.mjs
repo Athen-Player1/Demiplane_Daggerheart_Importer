@@ -140,6 +140,7 @@ async function importFromUrl(url) {
     await syncPlacedTokenArtwork(actor, normalized.tokenImg);
     await syncImportedItems(actor, normalized);
     warnAboutExternalTokenImage(normalized);
+    offerLocalTokenArtwork(actor, normalized.img);
     ui.notifications.info(game.i18n.format('DEMIPLANE_DH.notifications.imported', { name: actor.name }));
     actor.sheet?.render(true);
     return actor;
@@ -154,12 +155,14 @@ async function updateActorFromSavedUrl(actor) {
     }
 
     const normalized = await fetchAndParse(url);
-    const tokenImage = resolveTokenArtworkSource(normalized.img, game.settings.get(MODULE_ID, 'corsProxy'));
+    const localTokenImage = actor.getFlag(MODULE_ID, 'localTokenImage');
+    const tokenImage = localTokenImage || resolveTokenArtworkSource(normalized.img, game.settings.get(MODULE_ID, 'corsProxy'));
     normalized.tokenImg = tokenImage;
-    await actor.update(buildActorUpdate(normalized));
+    await actor.update(buildActorUpdate(normalized, localTokenImage));
     await syncPlacedTokenArtwork(actor, normalized.tokenImg);
     await syncImportedItems(actor, normalized);
     warnAboutExternalTokenImage(normalized);
+    if (!localTokenImage) offerLocalTokenArtwork(actor, normalized.img);
     ui.notifications.info(game.i18n.format('DEMIPLANE_DH.notifications.updated', { name: actor.name }));
     actor.sheet?.render(false);
 }
@@ -271,13 +274,13 @@ export function buildActorPostCreateUpdate(normalized) {
     };
 }
 
-export function buildActorUpdate(normalized) {
+export function buildActorUpdate(normalized, localTokenImage = null) {
     return {
         name: normalized.name,
         img: normalized.img,
         'prototypeToken.texture.src': normalized.tokenImg ?? normalized.img,
         system: buildSystemUpdate(normalized),
-        flags: buildFlags(normalized)
+        flags: buildFlags(normalized, localTokenImage ? { localTokenImage } : {})
     };
 }
 
@@ -288,7 +291,7 @@ export function resolveTokenArtworkSource(imageUrl, proxyTemplate = '') {
 
 function warnAboutExternalTokenImage(normalized) {
     if (normalized.img === normalized.tokenImg && /^https:\/\/demiplane-prod-app-avatar\./i.test(normalized.img)) {
-        ui.notifications.warn('Demiplane blocks cross-origin token images. Configure a CORS proxy that returns the original image bytes and allows your Foundry origin, then refresh this actor.');
+        ui.notifications.warn('Demiplane blocks Foundry from loading this token image. Use the local-copy prompt to save it in Foundry.');
     }
 }
 
@@ -307,7 +310,7 @@ export function buildSystemUpdate(normalized) {
     };
 }
 
-function buildFlags(normalized) {
+function buildFlags(normalized, extraFlags = {}) {
     return {
         [MODULE_ID]: {
             sourceUrl: normalized.sourceUrl,
@@ -315,9 +318,68 @@ function buildFlags(normalized) {
             numericId: normalized.numericId,
             demiplaneUpdated: normalized.updated,
             importedAt: new Date().toISOString(),
-            selections: normalized.selections
+            selections: normalized.selections,
+            ...extraFlags
         }
     };
+}
+
+const LOCAL_ARTWORK_DIRECTORY = 'demiplane-daggerheart-importer';
+
+function offerLocalTokenArtwork(actor, imageUrl) {
+    if (!actor?.id || !/^https:\/\/demiplane-prod-app-avatar\./i.test(String(imageUrl ?? ''))) return;
+
+    const safeUrl = escapeHtml(imageUrl);
+    const content = `
+        <p>Demiplane blocks Foundry from loading this token image. Open the image, save it to your computer, then choose that saved file below. Foundry will keep its own copy and use it for this token and linked scene tokens.</p>
+        <p><a href="${safeUrl}" target="_blank" rel="noopener">Open Demiplane image in a new tab</a></p>
+        <label>Saved image <input class="demiplane-local-artwork" type="file" accept="image/*"></label>`;
+
+    new Dialog({
+        title: `Copy ${actor.name}'s token image into Foundry`,
+        content,
+        buttons: { close: { label: 'Do this later' } },
+        render: html => {
+            const root = html instanceof jQuery ? html[0] : html;
+            root.querySelector('.demiplane-local-artwork')?.addEventListener('change', async event => {
+                const file = event.currentTarget.files?.[0];
+                if (!file) return;
+                if (!file.type.startsWith('image/')) {
+                    ui.notifications.error('Choose an image file for the token artwork.');
+                    event.currentTarget.value = '';
+                    return;
+                }
+
+                try {
+                    await saveLocalTokenArtwork(actor, file);
+                    ui.notifications.info(`Copied token artwork into Foundry for ${actor.name}.`);
+                    root.closest('.app')?.querySelector('.header-button.close')?.click();
+                } catch (error) {
+                    console.error(`${MODULE_ID} | Could not save local token artwork`, error);
+                    ui.notifications.error(`Could not save token artwork in Foundry: ${error.message}`);
+                }
+            });
+        }
+    }).render(true);
+}
+
+export async function saveLocalTokenArtwork(actor, file) {
+    await ensureLocalArtworkDirectory();
+    const uploaded = await FilePicker.upload('data', LOCAL_ARTWORK_DIRECTORY, file, {}, { notify: false });
+    const path = uploaded.path ?? uploaded.url;
+    if (!path) throw new Error('Foundry did not return the uploaded image path.');
+    await actor.update({ 'prototypeToken.texture.src': path });
+    await actor.setFlag(MODULE_ID, 'localTokenImage', path);
+    await syncPlacedTokenArtwork(actor, path);
+    return path;
+}
+
+async function ensureLocalArtworkDirectory() {
+    try {
+        await FilePicker.browse('data', LOCAL_ARTWORK_DIRECTORY);
+    } catch {
+        await FilePicker.createDirectory('data', LOCAL_ARTWORK_DIRECTORY);
+    }
 }
 
 export async function syncImportedItems(actor, normalized) {

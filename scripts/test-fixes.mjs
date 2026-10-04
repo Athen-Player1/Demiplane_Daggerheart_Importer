@@ -62,7 +62,7 @@ globalThis.Hooks = { once() {}, on() {} };
 globalThis.foundry = { utils: { deepClone: clone, mergeObject: merge, getProperty: get, setProperty: set, isEmpty: object => Object.keys(object).length === 0 } };
 globalThis.ui = { notifications: { warn() {} } };
 globalThis.game = { packs: new Collection() };
-const { syncImportedItems, buildSystemUpdate, findPackItem, buildActorCreateData, buildActorUpdate, syncPlacedTokenArtwork, resolveTokenArtworkSource } = await import('./module.mjs');
+const { syncImportedItems, buildSystemUpdate, findPackItem, buildActorCreateData, buildActorUpdate, syncPlacedTokenArtwork, resolveTokenArtworkSource, saveLocalTokenArtwork } = await import('./module.mjs');
 beforeEach(() => {
     // Exercise mixed installed content: 2.6.4 public packs lack the robes/dagger.
     game.packs = new Collection(
@@ -94,6 +94,42 @@ test('token artwork can use the configured binary-capable CORS proxy', () => {
     assert.equal(buildActorCreateData(n).prototypeToken.texture.src, source);
     assert.equal(buildActorUpdate(n)['prototypeToken.texture.src'], source);
     assert.equal(resolveTokenArtworkSource(n.img), n.img);
+});
+test('a Foundry-local token image is retained in prototype data and refresh flags', () => {
+    const n = normalized();
+    const localPath = 'demiplane-daggerheart-importer/edwin.png';
+    n.tokenImg = localPath;
+    const update = buildActorUpdate(n, localPath);
+    assert.equal(update['prototypeToken.texture.src'], localPath);
+    assert.equal(update.flags[MODULE_ID].localTokenImage, localPath);
+});
+test('local artwork upload updates the actor prototype and linked scene tokens', async () => {
+    const file = { name: 'edwin.png', type: 'image/png' };
+    const actorUpdates = [];
+    const flags = {};
+    const sceneUpdates = [];
+    globalThis.FilePicker = {
+        async browse() { return { dirs: [] }; },
+        async upload(source, path, uploadedFile, body, options) {
+            assert.equal(source, 'data'); assert.equal(path, 'demiplane-daggerheart-importer');
+            assert.equal(uploadedFile, file); assert.equal(options.notify, false);
+            return { path: 'demiplane-daggerheart-importer/edwin.png' };
+        }
+    };
+    game.scenes = [{
+        tokens: [{ id: 'edwin-token', actorId: 'edwin', actorLink: true }],
+        async updateEmbeddedDocuments(type, updates) { sceneUpdates.push({ type, updates }); }
+    }];
+    const actor = {
+        id: 'edwin',
+        async update(update) { actorUpdates.push(update); },
+        async setFlag(namespace, key, value) { flags[`${namespace}.${key}`] = value; }
+    };
+
+    assert.equal(await saveLocalTokenArtwork(actor, file), 'demiplane-daggerheart-importer/edwin.png');
+    assert.deepEqual(actorUpdates, [{ 'prototypeToken.texture.src': 'demiplane-daggerheart-importer/edwin.png' }]);
+    assert.equal(flags[`${MODULE_ID}.localTokenImage`], 'demiplane-daggerheart-importer/edwin.png');
+    assert.deepEqual(sceneUpdates, [{ type: 'Token', updates: [{ _id: 'edwin-token', 'texture.src': 'demiplane-daggerheart-importer/edwin.png' }] }]);
 });
 test('refresh updates linked placed tokens in every scene and leaves unlinked tokens alone', async () => {
     const url = 'https://demiplane-prod-app-avatar.s3.us-west-2.amazonaws.com/631a5045-97c0-4d5a-b15e-22e991530125.png';
