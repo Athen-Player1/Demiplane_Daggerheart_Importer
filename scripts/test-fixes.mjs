@@ -62,7 +62,7 @@ globalThis.Hooks = { once() {}, on() {} };
 globalThis.foundry = { utils: { deepClone: clone, mergeObject: merge, getProperty: get, setProperty: set, isEmpty: object => Object.keys(object).length === 0 } };
 globalThis.ui = { notifications: { warn() {} } };
 globalThis.game = { packs: new Collection() };
-const { syncImportedItems, buildSystemUpdate, findPackItem, buildActorCreateData, buildActorUpdate } = await import('./module.mjs');
+const { syncImportedItems, buildSystemUpdate, findPackItem, buildActorCreateData, buildActorUpdate, syncPlacedTokenArtwork } = await import('./module.mjs');
 beforeEach(() => {
     // Exercise mixed installed content: 2.6.4 public packs lack the robes/dagger.
     game.packs = new Collection(
@@ -84,6 +84,27 @@ test('portrait is copied to the actor prototype token texture', () => {
     const n = normalized();
     assert.equal(buildActorCreateData(n).prototypeToken.texture.src, n.img);
     assert.equal(buildActorUpdate(n)['prototypeToken.texture.src'], n.img);
+});
+test('refresh updates linked placed tokens in every scene and leaves unlinked tokens alone', async () => {
+    const url = 'https://demiplane-prod-app-avatar.s3.us-west-2.amazonaws.com/631a5045-97c0-4d5a-b15e-22e991530125.png';
+    const calls = [];
+    const makeScene = (tokens) => ({
+        tokens,
+        async updateEmbeddedDocuments(type, updates) { calls.push({ type, updates }); }
+    });
+    game.scenes = [
+        makeScene([
+            { id: 'linked-a', actorId: 'edwin', actorLink: true },
+            { id: 'unlinked', actorId: 'edwin', actorLink: false },
+            { id: 'other-actor', actorId: 'other', actorLink: true }
+        ]),
+        makeScene([{ id: 'linked-b', actorId: 'edwin', actorLink: true }])
+    ];
+    await syncPlacedTokenArtwork({ id: 'edwin' }, url);
+    assert.deepEqual(calls, [
+        { type: 'Token', updates: [{ _id: 'linked-a', 'texture.src': url }] },
+        { type: 'Token', updates: [{ _id: 'linked-b', 'texture.src': url }] }
+    ]);
 });
 test('equipped IDs distinguish active dagger and robes from carried staff', () => {
     assert.deepEqual(normalized().selections.equipment.map(item => item.equipped), [true, false, true, false]);

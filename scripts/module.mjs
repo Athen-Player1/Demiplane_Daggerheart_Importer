@@ -135,6 +135,7 @@ async function importFromUrl(url) {
     if (!actor) throw new Error('Actor creation failed; Foundry did not return a created actor.');
 
     await actor.update(buildActorPostCreateUpdate(normalized));
+    await syncPlacedTokenArtwork(actor, normalized.img);
     await syncImportedItems(actor, normalized);
     ui.notifications.info(game.i18n.format('DEMIPLANE_DH.notifications.imported', { name: actor.name }));
     actor.sheet?.render(true);
@@ -151,6 +152,7 @@ async function updateActorFromSavedUrl(actor) {
 
     const normalized = await fetchAndParse(url);
     await actor.update(buildActorUpdate(normalized));
+    await syncPlacedTokenArtwork(actor, normalized.img);
     await syncImportedItems(actor, normalized);
     ui.notifications.info(game.i18n.format('DEMIPLANE_DH.notifications.updated', { name: actor.name }));
     actor.sheet?.render(false);
@@ -405,6 +407,16 @@ export async function syncImportedItems(actor, normalized) {
 
 function buildPrototypeToken(img) {
     return { texture: { src: img } };
+}
+
+export async function syncPlacedTokenArtwork(actor, img) {
+    if (!actor?.id || !img || !game.scenes) return;
+    for (const scene of game.scenes) {
+        const updates = scene.tokens
+            .filter(token => token.actorId === actor.id && token.actorLink)
+            .map(token => ({ _id: token.id, 'texture.src': img }));
+        if (updates.length) await scene.updateEmbeddedDocuments('Token', updates);
+    }
 }
 
 function applyInventorySelection(data, selection) {
