@@ -125,6 +125,8 @@ async function showImportDialog() {
 async function importFromUrl(url) {
     validateUrl(url);
     const normalized = await fetchAndParse(url);
+    const tokenImage = resolveTokenArtworkSource(normalized.img, game.settings.get(MODULE_ID, 'corsProxy'));
+    normalized.tokenImg = tokenImage;
 
     // Foundryborne's Daggerheart character model has a rich default attack Action.
     // In Foundry v14, passing a partial `system` object at Actor.create time can
@@ -135,8 +137,9 @@ async function importFromUrl(url) {
     if (!actor) throw new Error('Actor creation failed; Foundry did not return a created actor.');
 
     await actor.update(buildActorPostCreateUpdate(normalized));
-    await syncPlacedTokenArtwork(actor, normalized.img);
+    await syncPlacedTokenArtwork(actor, normalized.tokenImg);
     await syncImportedItems(actor, normalized);
+    warnAboutExternalTokenImage(normalized);
     ui.notifications.info(game.i18n.format('DEMIPLANE_DH.notifications.imported', { name: actor.name }));
     actor.sheet?.render(true);
     return actor;
@@ -151,9 +154,12 @@ async function updateActorFromSavedUrl(actor) {
     }
 
     const normalized = await fetchAndParse(url);
+    const tokenImage = resolveTokenArtworkSource(normalized.img, game.settings.get(MODULE_ID, 'corsProxy'));
+    normalized.tokenImg = tokenImage;
     await actor.update(buildActorUpdate(normalized));
-    await syncPlacedTokenArtwork(actor, normalized.img);
+    await syncPlacedTokenArtwork(actor, normalized.tokenImg);
     await syncImportedItems(actor, normalized);
+    warnAboutExternalTokenImage(normalized);
     ui.notifications.info(game.i18n.format('DEMIPLANE_DH.notifications.updated', { name: actor.name }));
     actor.sheet?.render(false);
 }
@@ -252,7 +258,7 @@ export function buildActorCreateData(normalized) {
         name: normalized.name,
         type: 'character',
         img: normalized.img,
-        prototypeToken: buildPrototypeToken(normalized.img),
+        prototypeToken: buildPrototypeToken(normalized.tokenImg ?? normalized.img),
         flags: buildFlags(normalized)
     };
 }
@@ -260,7 +266,7 @@ export function buildActorCreateData(normalized) {
 export function buildActorPostCreateUpdate(normalized) {
     return {
         system: buildSystemUpdate(normalized),
-        'prototypeToken.texture.src': normalized.img,
+        'prototypeToken.texture.src': normalized.tokenImg ?? normalized.img,
         flags: buildFlags(normalized)
     };
 }
@@ -269,10 +275,21 @@ export function buildActorUpdate(normalized) {
     return {
         name: normalized.name,
         img: normalized.img,
-        'prototypeToken.texture.src': normalized.img,
+        'prototypeToken.texture.src': normalized.tokenImg ?? normalized.img,
         system: buildSystemUpdate(normalized),
         flags: buildFlags(normalized)
     };
+}
+
+export function resolveTokenArtworkSource(imageUrl, proxyTemplate = '') {
+    const template = String(proxyTemplate ?? '').trim();
+    return template.includes('{url}') ? template.replace('{url}', encodeURIComponent(imageUrl)) : imageUrl;
+}
+
+function warnAboutExternalTokenImage(normalized) {
+    if (normalized.img === normalized.tokenImg && /^https:\/\/demiplane-prod-app-avatar\./i.test(normalized.img)) {
+        ui.notifications.warn('Demiplane blocks cross-origin token images. Configure a CORS proxy that returns the original image bytes and allows your Foundry origin, then refresh this actor.');
+    }
 }
 
 export function buildSystemUpdate(normalized) {

@@ -133,6 +133,8 @@ The value should be a trusted proxy URL containing `{url}`. Example for a local 
 http://127.0.0.1:8787/?url={url}
 ```
 
+For Demiplane token artwork, the proxy must return the fetched image bytes unchanged, preserve an image content type when possible, and allow the Foundry browser origin with an `Access-Control-Allow-Origin` response header. Set this proxy in the world setting, then refresh the imported actor. The module uses the proxy URL for prototype and placed token textures while keeping the original Demiplane URL for the actor portrait. A proxy that only returns HTML or JSON is not suitable for token art.
+
 Blank means:
 
 ```text
